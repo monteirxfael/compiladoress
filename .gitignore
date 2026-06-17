@@ -1,0 +1,15 @@
+# Dependências do Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# Arquivos do Backend Python
+backend/__pycache__/
+backend/temp_build/
+backend/.env
+*.pyc
+
+# Arquivos do Sistema e VS Code
+.vscode/
+.DS_Store
+Thumbs.db
