@@ -35,26 +35,31 @@ def compile_code():
         f.write(source_code)
         
     try:
-        # Comportamento temporário (Mock): gera um esqueleto estruturado em NASM
-        # Quando seu compilador em C ('simplesc') estiver pronto, usaremos subprocess para chamá-lo
-        mock_asm = (
-            "; ---------------------------------------------------------\n"
-            ";   Código Assembly NASM gerado pelo Compilador SIMPLES\n"
-            "; ---------------------------------------------------------\n"
-            "global _start\n\n"
-            "section .text\n"
-            "_start:\n"
-            "    ; Seu compilador adicionará as instruções geradas aqui\n"
-            "    mov eax, 1       ; Syscall exit\n"
-            "    mov ebx, 0       ; Código de retorno 0\n"
-            "    int 0x80\n"
+        compiler_dir = os.path.join(os.path.dirname(__file__), 'compiler')
+        simplesc_bin = os.path.join(compiler_dir, 'build', 'simplesc')
+
+        # Compila o simplesc se o binário ainda não existir
+        if not os.path.isfile(simplesc_bin):
+            make_result = subprocess.run(
+                ['make', 'all'],
+                cwd=compiler_dir,
+                capture_output=True,
+                text=True
+            )
+            if make_result.returncode != 0:
+                return jsonify({'error': f"Erro ao compilar simplesc:\n{make_result.stderr}"}), 500
+
+        result = subprocess.run(
+            [simplesc_bin, source_path, asm_path],
+            capture_output=True,
+            text=True
         )
-        with open(asm_path, 'w', encoding='utf-8') as f:
-            f.write(mock_asm)
-            
+        if result.returncode != 0:
+            return jsonify({'error': result.stderr or result.stdout}), 400
+
         with open(asm_path, 'r', encoding='utf-8') as f:
             compiled_asm = f.read()
-            
+
         return jsonify({'asm': compiled_asm})
         
     except Exception as e:
