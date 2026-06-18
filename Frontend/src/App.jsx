@@ -6,6 +6,12 @@ import Editor from '@monaco-editor/react';
 
 import 'xterm/css/xterm.css';
 
+// 🌐 DETECÇÃO DINÂMICA DO ENDEREÇO DO BACKEND
+// Se o site abrir em 'localhost', ele usa a porta 5000. Caso contrário, usa o link do Render.
+const BACKEND_URL = window.location.hostname === 'localhost'
+  ? 'http://localhost:5000'
+  : 'https://simples-ide-backend.onrender.com'; // ◄ Substitua com o link final que o Render te der!
+
 export default function App() {
   const [session, setSession] = useState({
     access_token: "mock-token-temporario-para-testes",
@@ -43,7 +49,8 @@ export default function App() {
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    socketRef.current = io('http://localhost:5000/pty', {
+    // 🔌 Conexão do WebSocket apontando para o endereço dinâmico
+    socketRef.current = io(`${BACKEND_URL}/pty`, {
       auth: { token: session.access_token }
     });
 
@@ -76,7 +83,8 @@ export default function App() {
     xtermRef.current.writeln('\r\n\x1b[1;33m[*] Enviando código ao compilador...\x1b[0m');
     
     try {
-      const response = await fetch('http://localhost:5000/api/compile', {
+      // 📡 Requisição HTTP POST apontando para o endereço dinâmico
+      const response = await fetch(`${BACKEND_URL}/api/compile`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json'
