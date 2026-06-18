@@ -158,8 +158,8 @@ export default function App() {
   return (
     <div style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', backgroundColor: '#111827', color: '#f3f4f6', overflow: 'hidden', fontFamily: 'sans-serif', textAlign: 'left' }}>
       
-      <header style={{ backgroundColor: '#1f2937', borderBottom: '1px solid #374151', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', height: '56px', boxSizing: 'border-box', textAlign: 'left' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', textAlign: 'left' }}>
+      <header style={{ backgroundColor: '#1f2937', borderBottom: '1px solid #374151', padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', minHeight: '56px', boxSizing: 'border-box' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ fontSize: '20px', fontWeight: '900', letterSpacing: '0.05em', color: '#818cf8' }}>
             SIMPLES<span style={{ color: '#34d399' }}>.IDE</span>
           </span>
@@ -167,31 +167,31 @@ export default function App() {
             v1.0
           </span>
         </div>
-        
-        <div style={{ display: 'flex', gap: '12px', textAlign: 'left' }}>
-          <button onClick={handleCompile} disabled={isCompiling} style={{ backgroundColor: '#4f46e5', color: 'white', fontWeight: '600', padding: '6px 16px', borderRadius: '4px', border: 'none', cursor: 'pointer', fontSize: '14px' }}>
+
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button onClick={handleCompile} disabled={isCompiling} style={{ backgroundColor: '#4f46e5', color: 'white', fontWeight: '600', padding: '6px 14px', borderRadius: '4px', border: 'none', cursor: 'pointer', fontSize: '13px', whiteSpace: 'nowrap' }}>
             {isCompiling ? '⚙️ Compilando...' : '⚙️ Compilar'}
           </button>
-          <button onClick={handleRun} style={{ backgroundColor: '#059669', color: 'white', fontWeight: '600', padding: '6px 16px', borderRadius: '4px', border: 'none', cursor: 'pointer', fontSize: '14px' }}>
+          <button onClick={handleRun} style={{ backgroundColor: '#059669', color: 'white', fontWeight: '600', padding: '6px 14px', borderRadius: '4px', border: 'none', cursor: 'pointer', fontSize: '13px', whiteSpace: 'nowrap' }}>
             ▶ Executar
           </button>
-          <button onClick={() => xtermRef.current?.clear()} style={{ backgroundColor: '#4b5563', color: '#e5e7eb', fontWeight: '600', padding: '6px 12px', borderRadius: '4px', border: 'none', cursor: 'pointer', fontSize: '14px' }}>
+          <button onClick={() => xtermRef.current?.clear()} style={{ backgroundColor: '#4b5563', color: '#e5e7eb', fontWeight: '600', padding: '6px 10px', borderRadius: '4px', border: 'none', cursor: 'pointer', fontSize: '13px', whiteSpace: 'nowrap' }}>
             Limpar Console
           </button>
         </div>
       </header>
 
-      <main style={{ flex: 1, display: 'block', width: '100%', height: 'calc(100vh - 56px)', overflow: 'hidden', position: 'relative', textAlign: 'left' }}>
-        
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%', overflow: 'hidden' }}>
+
         {/* Bloco Superior (Editores) */}
-        <div style={{ width: '100%', height: 'calc(100% - 240px)', display: 'block', overflow: 'hidden', borderBottom: '1px solid #1f2937', textAlign: 'left' }}>
-          
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'row', overflow: 'hidden', borderBottom: '1px solid #1f2937' }}>
+
           {/* Lado Esquerdo: Monaco Editor */}
-          <div style={{ float: 'left', width: isAsmExpanded ? '55%' : 'calc(100% - 45px)', height: '100%', display: 'block', backgroundColor: '#030712', boxSizing: 'border-box', textAlign: 'left' }}>
-            <div style={{ backgroundColor: '#111827', padding: '4px 16px', height: '32px', display: 'flex', alignItems: 'center', fontSize: '12px', fontFamily: 'monospace', color: '#9ca3af', borderBottom: '1px solid #1f2937', boxSizing: 'border-box', textAlign: 'left' }}>
+          <div style={{ flex: isAsmExpanded ? '0 0 50%' : '1 1 100%', display: 'flex', flexDirection: 'column', backgroundColor: '#030712', boxSizing: 'border-box', overflow: 'hidden', transition: 'flex 0.3s' }}>
+            <div style={{ backgroundColor: '#111827', padding: '4px 16px', height: '32px', display: 'flex', alignItems: 'center', fontSize: '12px', fontFamily: 'monospace', color: '#9ca3af', borderBottom: '1px solid #1f2937', boxSizing: 'border-box', flexShrink: 0 }}>
               main.simples
             </div>
-            <div style={{ width: '100%', height: 'calc(100% - 32px)', paddingTop: '8px', boxSizing: 'border-box', textAlign: 'left' }}>
+            <div style={{ flex: 1, paddingTop: '8px', boxSizing: 'border-box', overflow: 'hidden' }}>
               <Editor
                 height="100%"
                 width="100%"
@@ -204,17 +204,17 @@ export default function App() {
               />
             </div>
           </div>
-          
+
           {/* Lado Direito: Painel ASM */}
-          <div style={{ float: 'right', backgroundColor: '#030712', borderLeft: '1px solid #1f2937', height: '100%', width: isAsmExpanded ? '45%' : '45px', transition: 'width 0.3s', overflow: 'hidden', boxSizing: 'border-box', textAlign: 'left' }}>
-            <div style={{ backgroundColor: '#111827', padding: '4px 16px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', fontFamily: 'monospace', color: '#9ca3af', borderBottom: '1px solid #1f2937', overflow: 'hidden', boxSizing: 'border-box', textAlign: 'left' }}>
+          <div style={{ flex: isAsmExpanded ? '0 0 50%' : '0 0 45px', display: 'flex', flexDirection: 'column', backgroundColor: '#030712', borderLeft: '1px solid #1f2937', overflow: 'hidden', boxSizing: 'border-box', transition: 'flex 0.3s' }}>
+            <div style={{ backgroundColor: '#111827', padding: '4px 16px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', fontFamily: 'monospace', color: '#9ca3af', borderBottom: '1px solid #1f2937', boxSizing: 'border-box', flexShrink: 0 }}>
               {isAsmExpanded && <span>código_gerado.asm</span>}
               <button onClick={() => setIsAsmExpanded(!isAsmExpanded)} style={{ color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer', fontWeight: '600', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
                 {isAsmExpanded ? '◂ Ocultar' : '👁️ ASM'}
               </button>
             </div>
             {isAsmExpanded && (
-              <pre style={{ height: 'calc(100% - 32px)', padding: '16px', fontFamily: 'monospace', fontSize: '14px', overflow: 'auto', color: '#fcd34d', margin: 0, lineHeight: '1.5', whiteSpace: 'pre-wrap', boxSizing: 'border-box', textAlign: 'left' }}>
+              <pre style={{ flex: 1, padding: '16px', fontFamily: 'monospace', fontSize: '14px', overflow: 'auto', color: '#fcd34d', margin: 0, lineHeight: '1.5', whiteSpace: 'pre-wrap', boxSizing: 'border-box' }}>
                 {asmCode}
               </pre>
             )}
@@ -223,14 +223,14 @@ export default function App() {
         </div>
 
         {/* Bloco Inferior: Terminal */}
-        <div style={{ width: '100%', height: '240px', backgroundColor: '#0a0a0a', display: 'block', borderTop: '1px solid #1f2937', clear: 'both', boxSizing: 'border-box', textAlign: 'left' }}>
-          <div style={{ backgroundColor: '#111827', padding: '4px 16px', height: '32px', display: 'flex', alignItems: 'center', fontSize: '12px', fontFamily: 'monospace', color: '#9ca3af', borderBottom: '1px solid #1f2937', boxSizing: 'border-box', textAlign: 'left' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '8px', textAlign: 'left' }}>
+        <div style={{ flexShrink: 0, height: '280px', backgroundColor: '#0a0a0a', borderTop: '1px solid #1f2937', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
+          <div style={{ backgroundColor: '#111827', padding: '4px 16px', height: '32px', display: 'flex', alignItems: 'center', fontSize: '12px', fontFamily: 'monospace', color: '#9ca3af', borderBottom: '1px solid #1f2937', boxSizing: 'border-box', flexShrink: 0 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }}></span>
               <span>Terminal Interativo (Console WebSocket PTY)</span>
             </span>
           </div>
-          <div ref={terminalRef} style={{ width: '100%', height: 'calc(100% - 32px)', padding: '8px', overflow: 'hidden', boxSizing: 'border-box', textAlign: 'left' }} />
+          <div ref={terminalRef} style={{ flex: 1, padding: '8px', overflow: 'hidden', boxSizing: 'border-box' }} />
         </div>
 
       </main>
