@@ -113,6 +113,48 @@ export default function App() {
     }
   };
 
+  function handleEditorWillMount(monaco) {
+    monaco.languages.register({ id: 'simples' });
+
+    monaco.languages.setMonarchTokensProvider('simples', {
+      keywords: [
+        'programa', 'inicio', 'fim', 'se', 'entao', 'senao', 'fimse',
+        'enquanto', 'faca', 'fimenquanto', 'para', 'de', 'ate', 'passo',
+        'fimpara', 'procedimento', 'retorna', 'leia', 'escreva', 'escreval',
+        'inteiro', 'flutuante', 'string', 'vazio', 'e', 'ou', 'nao', 'valor'
+      ],
+      tokenizer: {
+        root: [
+          [/\/\/.*$/, 'comment'],
+          [/\/\*/, 'comment', '@comment'],
+          [/"[^"]*"/, 'string'],
+          [/\b\d+(\.\d+)?\b/, 'number'],
+          [/<-/, 'operator'],
+          [/[+\-*<>=]/, 'operator'],
+          [/\b(?:programa|inicio|fim|se|entao|senao|fimse|enquanto|faca|fimenquanto|para|de|ate|passo|fimpara|procedimento|retorna|leia|escreva|escreval|inteiro|flutuante|string|vazio|e|ou|nao|valor)\b/, 'keyword'],
+          [/[a-zA-Z_]\w*/, 'identifier'],
+        ],
+        comment: [
+          [/\*\//, 'comment', '@pop'],
+          [/./, 'comment'],
+        ],
+      }
+    });
+
+    monaco.editor.defineTheme('simples-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: 'keyword', foreground: 'c792ea', fontStyle: 'bold' },
+        { token: 'comment', foreground: '546e7a', fontStyle: 'italic' },
+        { token: 'string', foreground: 'c3e88d' },
+        { token: 'number', foreground: 'f78c6c' },
+        { token: 'operator', foreground: '89ddff' },
+      ],
+      colors: {}
+    });
+  }
+
   return (
     <div style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', backgroundColor: '#111827', color: '#f3f4f6', overflow: 'hidden', fontFamily: 'sans-serif', textAlign: 'left' }}>
       
@@ -153,8 +195,9 @@ export default function App() {
               <Editor
                 height="100%"
                 width="100%"
-                language="javascript"
-                theme="vs-dark"
+                language="simples"
+                theme="simples-dark"
+                beforeMount={handleEditorWillMount}
                 value={code}
                 onChange={(val) => setCode(val || '')}
                 options={{ fontSize: 14, minimap: { enabled: false }, automaticLayout: true }}
