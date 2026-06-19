@@ -11,7 +11,10 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'temp_build')
+# No Linux/WSL usa /tmp para garantir que binários gerados tenham permissão
+# de execução — arquivos em /mnt/c/ (NTFS) não herdam o bit +x no WSL.
+_local_build = os.path.join(os.path.dirname(__file__), 'temp_build')
+UPLOAD_FOLDER = '/tmp/simples_build' if os.name == 'posix' else _local_build
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Mapeia sid -> Popen para permitir envio de stdin ao processo em execução
@@ -126,6 +129,9 @@ class SubprocessStrategy(ExecutionStrategy):
             socketio.emit('pty_data', f'\x1b[1;31m[-] Erro ld:\x1b[0m\r\n{err}\r\n', room=sid, namespace='/pty')
             socketio.emit('exit', {'code': ld.returncode}, room=sid, namespace='/pty')
             return
+
+        # Garante permissão de execução independente do sistema de arquivos
+        os.chmod(binary_path, 0o755)
 
         socketio.emit('pty_data', '\x1b[1;32m[+] Executando binário: ./programa\x1b[0m\r\n\r\n', room=sid, namespace='/pty')
 
