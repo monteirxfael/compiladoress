@@ -1,6 +1,7 @@
 # backend/app.py
 import os
 import subprocess
+import threading
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
@@ -12,7 +13,10 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'temp_build')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Estado do terminal para input do usuário
+# Mapeia sid -> Popen para permitir envio de stdin ao processo em execução
+running_processes = {}
+
+# Estado legado do terminal (mantido para compatibilidade)
 STATUS_SISTEMA = {"executando_programa": False, "valor_x": ""}
 
 # =============================================================================
@@ -78,7 +82,7 @@ class ExecutionStrategy:
 
 class SubprocessStrategy(ExecutionStrategy):
     def execute(self, binary_path: str, sid: str):
-        """Monta e executa o binário via subprocess, emitindo eventos nomeados."""
+        """Monta o binário com NASM + ld e executa com Popen + thread para leia interativo."""
         build_dir = os.path.dirname(binary_path)
         asm_path = os.path.join(build_dir, 'programa.asm')
         obj_path = os.path.join(build_dir, 'programa.o')
@@ -87,8 +91,7 @@ class SubprocessStrategy(ExecutionStrategy):
             socketio.emit('pty_data', '\r\n\x1b[1;31m[-] Nenhum .asm encontrado. Compile primeiro.\x1b[0m\r\n', room=sid, namespace='/pty')
             return
 
-        # PADRÃO OBSERVER: evento 'compile_started' notifica a UI
-        # que o processo de montagem começou — sem polling.
+        # PADRÃO OBSERVER: evento 'compile_started' notifica a UI que a montagem começou.
         socketio.emit('compile_started', {'message': 'Montando com NASM...'}, room=sid, namespace='/pty')
         socketio.emit('pty_data', '\r\n\x1b[1;33m[*] Montando com NASM...\x1b[0m\r\n', room=sid, namespace='/pty')
 
@@ -116,23 +119,41 @@ class SubprocessStrategy(ExecutionStrategy):
 
         socketio.emit('pty_data', '\x1b[1;32m[+] Executando binário: ./programa\x1b[0m\r\n\r\n', room=sid, namespace='/pty')
 
-        run = subprocess.run([binary_path], capture_output=True, text=True, timeout=10)
+        try:
+            # Popen com pipes abertos: stdin permanece disponível para leia()
+            # enquanto o processo está rodando — diferente de subprocess.run que bloqueia.
+            process = subprocess.Popen(
+                [binary_path],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=0,  # sem buffer — crítico para leia funcionar em tempo real
+            )
+            running_processes[sid] = process
 
-        # PADRÃO OBSERVER: evento 'stdout' entrega o output do processo
-        # para a UI sem que ela precise fazer polling no servidor.
-        if run.stdout:
-            output = run.stdout.replace('\n', '\r\n')
-            socketio.emit('stdout', {'data': output}, room=sid, namespace='/pty')
-            socketio.emit('pty_data', output, room=sid, namespace='/pty')
+            # Thread separada lê stdout byte a byte e emite para o cliente
+            # sem bloquear o event loop do Flask-SocketIO.
+            def read_output():
+                try:
+                    for chunk in iter(lambda: process.stdout.read(1), b''):
+                        text = chunk.decode('utf-8', errors='replace')
+                        text_crlf = text.replace('\n', '\r\n')
+                        # PADRÃO OBSERVER: 'stdout' e 'pty_data' notificam a UI em tempo real.
+                        socketio.emit('stdout', {'data': text_crlf}, room=sid, namespace='/pty')
+                        socketio.emit('pty_data', text_crlf, room=sid, namespace='/pty')
+                finally:
+                    process.wait()
+                    running_processes.pop(sid, None)
+                    # PADRÃO OBSERVER: 'exit' sinaliza término com código de saída.
+                    socketio.emit('exit', {'code': process.returncode}, room=sid, namespace='/pty')
+                    socketio.emit('pty_data', f'\r\n\x1b[1;32m[+] Processo finalizado com código {process.returncode}.\x1b[0m\r\nSimplesConsole> ', room=sid, namespace='/pty')
 
-        if run.stderr:
-            err = run.stderr.replace('\n', '\r\n')
-            socketio.emit('pty_data', f'\x1b[1;31m{err}\x1b[0m', room=sid, namespace='/pty')
+            thread = threading.Thread(target=read_output, daemon=True)
+            thread.start()
 
-        # PADRÃO OBSERVER: evento 'exit' sinaliza o fim do processo
-        # com o código de saída — a UI pode reagir (ex: desabilitar input).
-        socketio.emit('exit', {'code': run.returncode}, room=sid, namespace='/pty')
-        socketio.emit('pty_data', f'\r\n\x1b[1;32m[+] Processo finalizado com código de saída {run.returncode}.\x1b[0m\r\nSimplesConsole> ', room=sid, namespace='/pty')
+        except Exception as e:
+            socketio.emit('pty_data', f'\r\n\x1b[1;31mErro ao executar: {e}\x1b[0m\r\n', room=sid, namespace='/pty')
+            socketio.emit('exit', {'code': 1}, room=sid, namespace='/pty')
 
 
 # =============================================================================
@@ -183,28 +204,26 @@ def handle_pty_connect(auth):
 
 @socketio.on('pty_input', namespace='/pty')
 def handle_pty_input(data):
-    """Recebe e gerencia cada caractere digitado no terminal xterm."""
+    """Encaminha input do xterm.js para o processo em execução (leia interativo)
+    ou trata como entrada do console padrão se nenhum processo estiver rodando."""
+    sid = request.sid
     user_input = data.get('input', '')
-    global STATUS_SISTEMA
 
-    if STATUS_SISTEMA["executando_programa"]:
-        if user_input in ('\r', '\n'):
-            emit('pty_data', '\r\n')
-            valor_final = STATUS_SISTEMA["valor_x"] if STATUS_SISTEMA["valor_x"] else "10"
-            emit('pty_data', f'\x1b[1;36m[Sandbox] Armazenando valor {valor_final} no endereço de memória de X.\x1b[0m\r\n')
-            emit('pty_data', f'SimplesOut> {valor_final}\r\n')
-            emit('pty_data', '\r\n\x1b[1;32m[+] Processo finalizado com código de saída 0.\x1b[0m\r\nSimplesConsole> ')
-            STATUS_SISTEMA["executando_programa"] = False
-            STATUS_SISTEMA["valor_x"] = ""
-        elif user_input == '\x7f':
-            if len(STATUS_SISTEMA["valor_x"]) > 0:
-                STATUS_SISTEMA["valor_x"] = STATUS_SISTEMA["valor_x"][:-1]
-                emit('pty_data', '\b \b')
-        else:
-            if user_input.isdigit():
-                STATUS_SISTEMA["valor_x"] += user_input
-                emit('pty_data', user_input)
+    process = running_processes.get(sid)
+    if process and process.poll() is None:
+        # Processo real em execução: envia o caractere diretamente ao stdin do binário.
+        # '\r' vira '\n' porque o processo espera newline Unix para leia().
+        try:
+            char = '\n' if user_input == '\r' else user_input
+            process.stdin.write(char.encode('utf-8'))
+            process.stdin.flush()
+            # Ecoa o caractere no terminal para feedback visual
+            echo = '\r\n' if user_input == '\r' else user_input
+            emit('pty_data', echo)
+        except Exception:
+            pass
     else:
+        # Nenhum processo rodando: comportamento padrão do console
         if user_input == '\r':
             emit('pty_data', '\r\nSimplesConsole> ')
         elif user_input == '\x7f':
@@ -212,10 +231,19 @@ def handle_pty_input(data):
         else:
             emit('pty_data', user_input)
 
+
+@socketio.on('stop_execution', namespace='/pty')
+def handle_stop_execution(data=None):
+    """Encerra o processo em execução para o cliente atual."""
+    sid = request.sid
+    process = running_processes.pop(sid, None)
+    if process:
+        process.terminate()
+        emit('pty_data', '\r\n\x1b[1;31m[!] Execução interrompida pelo usuário.\x1b[0m\r\nSimplesConsole> ')
+
 @socketio.on('run_binary', namespace='/pty')
 def handle_run_binary():
     """Delega a execução para a estratégia escolhida pelo factory."""
-    from flask_socketio import rooms
     sid = request.sid
     binary_path = os.path.join(UPLOAD_FOLDER, 'programa')
 
