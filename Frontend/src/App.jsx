@@ -56,8 +56,24 @@ export default function App() {
       term.writeln('\x1b[1;32m[+] Canal de comunicação síncrona PTY Ativo!\x1b[0m\r\n');
     });
 
+    // Evento genérico — mantido para compatibilidade
     socketRef.current.on('pty_data', (data) => {
       term.write(data);
+    });
+
+    // PADRÃO OBSERVER: listeners para eventos nomeados do backend.
+    // A UI reage a cada etapa do pipeline sem polling.
+    socketRef.current.on('compile_started', ({ message }) => {
+      term.writeln(`\r\n\x1b[1;33m[*] ${message}\x1b[0m`);
+    });
+
+    socketRef.current.on('stdout', ({ data }) => {
+      term.write(data);
+    });
+
+    socketRef.current.on('exit', ({ code }) => {
+      const color = code === 0 ? '\x1b[1;32m' : '\x1b[1;31m';
+      term.writeln(`\r\n${color}[+] Processo encerrado com código ${code}.\x1b[0m`);
     });
 
     term.onData((data) => {
