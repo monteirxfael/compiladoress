@@ -2,6 +2,7 @@
 import os
 import subprocess
 import threading
+import shutil
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
@@ -91,12 +92,21 @@ class SubprocessStrategy(ExecutionStrategy):
             socketio.emit('pty_data', '\r\n\x1b[1;31m[-] Nenhum .asm encontrado. Compile primeiro.\x1b[0m\r\n', room=sid, namespace='/pty')
             return
 
+        # Resolve caminhos absolutos dos binários para evitar PermissionError no WSL
+        nasm_bin = shutil.which('nasm') or '/usr/bin/nasm'
+        ld_bin = shutil.which('ld') or '/usr/bin/ld'
+
+        if not os.path.isfile(nasm_bin):
+            socketio.emit('pty_data', f'\r\n\x1b[1;31m[-] nasm não encontrado em {nasm_bin}. Instale com: apt install nasm\x1b[0m\r\n', room=sid, namespace='/pty')
+            socketio.emit('exit', {'code': 1}, room=sid, namespace='/pty')
+            return
+
         # PADRÃO OBSERVER: evento 'compile_started' notifica a UI que a montagem começou.
         socketio.emit('compile_started', {'message': 'Montando com NASM...'}, room=sid, namespace='/pty')
         socketio.emit('pty_data', '\r\n\x1b[1;33m[*] Montando com NASM...\x1b[0m\r\n', room=sid, namespace='/pty')
 
         nasm = subprocess.run(
-            ['nasm', '-f', 'elf32', asm_path, '-o', obj_path],
+            [nasm_bin, '-f', 'elf32', asm_path, '-o', obj_path],
             capture_output=True, text=True
         )
         if nasm.returncode != 0:
@@ -108,7 +118,7 @@ class SubprocessStrategy(ExecutionStrategy):
         socketio.emit('pty_data', '\x1b[1;33m[*] Linkando com ld...\x1b[0m\r\n', room=sid, namespace='/pty')
 
         ld = subprocess.run(
-            ['ld', '-m', 'elf_i386', obj_path, '-o', binary_path],
+            [ld_bin, '-m', 'elf_i386', obj_path, '-o', binary_path],
             capture_output=True, text=True
         )
         if ld.returncode != 0:
