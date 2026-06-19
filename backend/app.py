@@ -154,9 +154,8 @@ class SubprocessStrategy(ExecutionStrategy):
                 finally:
                     process.wait()
                     running_processes.pop(sid, None)
-                    # PADRÃO OBSERVER: 'exit' sinaliza término com código de saída.
+                    # PADRÃO OBSERVER: 'exit' sinaliza término — o App.jsx exibe a mensagem final.
                     socketio.emit('exit', {'code': process.returncode}, room=sid, namespace='/pty')
-                    socketio.emit('pty_data', f'\r\n\x1b[1;32m[+] Processo finalizado com código {process.returncode}.\x1b[0m\r\nSimplesConsole> ', room=sid, namespace='/pty')
 
             thread = threading.Thread(target=read_output, daemon=True)
             thread.start()

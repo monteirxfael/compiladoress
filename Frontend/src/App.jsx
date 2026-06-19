@@ -73,7 +73,7 @@ export default function App() {
 
     socketRef.current.on('exit', ({ code }) => {
       const color = code === 0 ? '\x1b[1;32m' : '\x1b[1;31m';
-      term.writeln(`\r\n${color}[+] Processo encerrado com código ${code}.\x1b[0m`);
+      term.write(`\r\n${color}[+] Processo finalizado com código ${code}.\x1b[0m\r\nSimplesConsole> `);
     });
 
     term.onData((data) => {
