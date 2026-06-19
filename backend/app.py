@@ -119,17 +119,45 @@ def handle_pty_input(data):
 
 @socketio.on('run_binary', namespace='/pty')
 def handle_run_binary():
-    """Simula o disparo do binário correspondente ao código 'main.simples'"""
-    global STATUS_SISTEMA
-    STATUS_SISTEMA["executando_programa"] = True
-    STATUS_SISTEMA["valor_x"] = "" # Limpa qualquer resíduo anterior
-    
-    emit('pty_data', '\r\n\x1b[1;33m[*] Instanciando container efêmero Docker (Sandbox Container)...\x1b[0m\r\n')
-    emit('pty_data', '\x1b[1;34m[*] Carregando imagem base do cluster local...\x1b[0m\r\n')
-    emit('pty_data', '\x1b[1;32m[+] Executando binário: ./programa_compilado\x1b[0m\r\n\r\n')
-    
-    # Simula a execução do comando 'leia(x)' pausando o terminal para input do aluno
-    emit('pty_data', 'Aguardando entrada para inteiro x: ')
+    """Monta e executa o binário real gerado pelo compilador SIMPLES."""
+    asm_path = os.path.join(UPLOAD_FOLDER, 'programa.asm')
+    obj_path = os.path.join(UPLOAD_FOLDER, 'programa.o')
+    bin_path = os.path.join(UPLOAD_FOLDER, 'programa')
+
+    if not os.path.isfile(asm_path):
+        emit('pty_data', '\r\n\x1b[1;31m[-] Nenhum .asm encontrado. Compile o código primeiro.\x1b[0m\r\n')
+        return
+
+    emit('pty_data', '\r\n\x1b[1;33m[*] Montando com NASM...\x1b[0m\r\n')
+    nasm = subprocess.run(
+        ['nasm', '-f', 'elf32', asm_path, '-o', obj_path],
+        capture_output=True, text=True
+    )
+    if nasm.returncode != 0:
+        emit('pty_data', f'\x1b[1;31m[-] Erro NASM:\x1b[0m\r\n{nasm.stderr.replace(chr(10), chr(13)+chr(10))}\r\n')
+        return
+
+    emit('pty_data', '\x1b[1;33m[*] Linkando com ld...\x1b[0m\r\n')
+    ld = subprocess.run(
+        ['ld', '-m', 'elf_i386', obj_path, '-o', bin_path],
+        capture_output=True, text=True
+    )
+    if ld.returncode != 0:
+        emit('pty_data', f'\x1b[1;31m[-] Erro ld:\x1b[0m\r\n{ld.stderr.replace(chr(10), chr(13)+chr(10))}\r\n')
+        return
+
+    emit('pty_data', '\x1b[1;32m[+] Executando binário: ./programa\x1b[0m\r\n\r\n')
+    run = subprocess.run(
+        [bin_path],
+        capture_output=True, text=True, timeout=10
+    )
+
+    if run.stdout:
+        emit('pty_data', run.stdout.replace('\n', '\r\n'))
+    if run.stderr:
+        emit('pty_data', f'\x1b[1;31m{run.stderr.replace(chr(10), chr(13)+chr(10))}\x1b[0m')
+
+    emit('pty_data', f'\r\n\x1b[1;32m[+] Processo finalizado com código de saída {run.returncode}.\x1b[0m\r\nSimplesConsole> ')
 
 if __name__ == '__main__':
     print("[*] Iniciando o Servidor da SIMPLES.IDE na porta 5000...")
