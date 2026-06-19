@@ -154,9 +154,9 @@ class SubprocessStrategy(ExecutionStrategy):
                     for chunk in iter(lambda: process.stdout.read(1), b''):
                         text = chunk.decode('utf-8', errors='replace')
                         text_crlf = text.replace('\n', '\r\n')
-                        # PADRÃO OBSERVER: 'stdout' e 'pty_data' notificam a UI em tempo real.
+                        # PADRÃO OBSERVER: 'stdout' notifica a UI com o output do processo.
+                        # Não emitir 'pty_data' aqui — o listener de 'stdout' no frontend já escreve no terminal.
                         socketio.emit('stdout', {'data': text_crlf}, room=sid, namespace='/pty')
-                        socketio.emit('pty_data', text_crlf, room=sid, namespace='/pty')
                 finally:
                     process.wait()
                     running_processes.pop(sid, None)
