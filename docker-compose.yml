@@ -26,3 +26,14 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf
     depends_on:
       - backend
+
+  runner:
+    build:
+      context: ./runner
+    image: simples-runner
+    network_mode: none
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp

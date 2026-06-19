@@ -3,6 +3,7 @@ import os
 import subprocess
 import threading
 import shutil
+import docker as docker_sdk
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
@@ -86,7 +87,7 @@ class ExecutionStrategy:
 
 class SubprocessStrategy(ExecutionStrategy):
     def execute(self, binary_path: str, sid: str):
-        """Monta o binário com NASM + ld e executa com Popen + thread para leia interativo."""
+        """Monta o binário com NASM + ld e executa em sandbox Docker (qemu) com fallback para Popen."""
         build_dir = os.path.dirname(binary_path)
         asm_path = os.path.join(build_dir, 'programa.asm')
         obj_path = os.path.join(build_dir, 'programa.o')
@@ -130,45 +131,77 @@ class SubprocessStrategy(ExecutionStrategy):
             socketio.emit('exit', {'code': ld.returncode}, room=sid, namespace='/pty')
             return
 
-        # Garante permissão de execução independente do sistema de arquivos
         os.chmod(binary_path, 0o755)
 
+        socketio.emit('stdout', {'data': '\r\n$ Executando...\r\n'}, room=sid, namespace='/pty')
+        socketio.emit('compile_started', {'message': 'Iniciando execução...'}, room=sid, namespace='/pty')
         socketio.emit('pty_data', '\x1b[1;32m[+] Executando binário: ./programa\x1b[0m\r\n\r\n', room=sid, namespace='/pty')
 
         try:
-            # Popen com pipes abertos: stdin permanece disponível para leia()
-            # enquanto o processo está rodando — diferente de subprocess.run que bloqueia.
-            process = subprocess.Popen(
-                [binary_path],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                bufsize=0,  # sem buffer — crítico para leia funcionar em tempo real
-            )
-            running_processes[sid] = process
+            # PADRÃO STRATEGY: tenta executar no container runner sandbox (qemu isolado).
+            # Se o Docker não estiver disponível, cai no fallback Popen direto.
+            client = docker_sdk.from_env()
+            binary_name = os.path.basename(binary_path)
 
-            # Thread separada lê stdout byte a byte e emite para o cliente
-            # sem bloquear o event loop do Flask-SocketIO.
+            container = client.containers.run(
+                image='simples-runner',
+                command=['/usr/bin/qemu-i386-static', f'/sandbox/{binary_name}'],
+                volumes={build_dir: {'bind': '/sandbox', 'mode': 'ro'}},
+                network_mode='none',
+                cap_drop=['ALL'],
+                read_only=True,
+                tmpfs={'/tmp': ''},
+                stdin_open=True,
+                tty=False,
+                detach=True,
+                remove=False,
+            )
+            running_processes[sid] = container
+
             def read_output():
                 try:
-                    for chunk in iter(lambda: process.stdout.read(1), b''):
-                        text = chunk.decode('utf-8', errors='replace')
-                        text_crlf = text.replace('\n', '\r\n')
+                    for chunk in container.logs(stream=True, follow=True):
+                        text = chunk.decode('utf-8', errors='replace').replace('\n', '\r\n')
                         # PADRÃO OBSERVER: 'stdout' notifica a UI com o output do processo.
-                        # Não emitir 'pty_data' aqui — o listener de 'stdout' no frontend já escreve no terminal.
-                        socketio.emit('stdout', {'data': text_crlf}, room=sid, namespace='/pty')
+                        socketio.emit('stdout', {'data': text}, room=sid, namespace='/pty')
                 finally:
-                    process.wait()
+                    result = container.wait()
+                    container.remove(force=True)
                     running_processes.pop(sid, None)
-                    # PADRÃO OBSERVER: 'exit' sinaliza término — o App.jsx exibe a mensagem final.
-                    socketio.emit('exit', {'code': process.returncode}, room=sid, namespace='/pty')
+                    # PADRÃO OBSERVER: 'exit' sinaliza término com código de saída.
+                    socketio.emit('exit', {'code': result.get('StatusCode', 0)}, room=sid, namespace='/pty')
 
-            thread = threading.Thread(target=read_output, daemon=True)
-            thread.start()
+            threading.Thread(target=read_output, daemon=True).start()
 
-        except Exception as e:
-            socketio.emit('pty_data', f'\r\n\x1b[1;31mErro ao executar: {e}\x1b[0m\r\n', room=sid, namespace='/pty')
-            socketio.emit('exit', {'code': 1}, room=sid, namespace='/pty')
+        except Exception:
+            # Fallback: Popen direto se Docker não disponível
+            socketio.emit('pty_data', '\x1b[1;33m[~] Docker indisponível — executando via subprocess.\x1b[0m\r\n', room=sid, namespace='/pty')
+            try:
+                # Popen com pipes abertos: stdin permanece disponível para leia()
+                process = subprocess.Popen(
+                    [binary_path],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    bufsize=0,  # sem buffer — crítico para leia funcionar em tempo real
+                )
+                running_processes[sid] = process
+
+                def read_output_fallback():
+                    try:
+                        for chunk in iter(lambda: process.stdout.read(1), b''):
+                            text = chunk.decode('utf-8', errors='replace').replace('\n', '\r\n')
+                            socketio.emit('stdout', {'data': text}, room=sid, namespace='/pty')
+                    finally:
+                        process.wait()
+                        running_processes.pop(sid, None)
+                        socketio.emit('exit', {'code': process.returncode}, room=sid, namespace='/pty')
+
+                threading.Thread(target=read_output_fallback, daemon=True).start()
+
+            except Exception as e:
+                socketio.emit('pty_data', f'\r\n\x1b[1;31mErro ao executar: {e}\x1b[0m\r\n', room=sid, namespace='/pty')
+                socketio.emit('exit', {'code': 1}, room=sid, namespace='/pty')
 
 
 # =============================================================================
