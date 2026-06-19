@@ -2,63 +2,80 @@
 import os
 import sys
 import subprocess
-import shlex
+import uuid
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 
 app = Flask(__name__)
-# Libera o acesso para o frontend (Vite) se comunicar com o Flask sem bloqueio de CORS
+# Libera o acesso para o frontend se comunicar com o Flask sem bloqueio de CORS
 CORS(app, resources={r"/*": {"origins": "*"}})
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Cria uma pasta temporária para armazenar os códigos enviados
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'temp_build')
+# Diretório temporário dentro do container para isolar os arquivos de cada requisição
+UPLOAD_FOLDER = "/tmp/simples_builds"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Variável global temporária para gerenciar o estado da simulação do terminal
-STATUS_SISTEMA = {"executando_programa": False, "valor_x": ""}
+# Caminho do compilador nativo gerado no build do Dockerfile
+SIMPLESC_BINARY = "/app/simplesc"
 
 @app.route('/api/compile', methods=['POST'])
 def compile_code():
-    """Recebe o código em SIMPLES, gera o arquivo .asm e devolve para a tela."""
+    """Recebe o código em SIMPLES, invoca o simplesc nativo e retorna o Assembly real."""
     data = request.json
     if not data or 'code' not in data:
         return jsonify({'error': 'Código não fornecido.'}), 400
     
     source_code = data['code']
-    source_path = os.path.join(UPLOAD_FOLDER, 'programa.simples')
-    asm_path = os.path.join(UPLOAD_FOLDER, 'programa.asm')
     
-    # Salva o texto do editor no arquivo local
+    # Gera um ID único para a sessão para evitar colisões entre acessos simultâneos de alunos
+    session_id = str(uuid.uuid4())
+    source_path = os.path.join(UPLOAD_FOLDER, f'{session_id}.simples')
+    asm_path = os.path.join(UPLOAD_FOLDER, f'{session_id}.asm')
+    
+    # Salva o texto do editor no arquivo temporário (.simples)
     with open(source_path, 'w', encoding='utf-8') as f:
         f.write(source_code)
         
     try:
-        # Comportamento temporário (Mock): gera um esqueleto estruturado em NASM
-        # Quando seu compilador em C ('simplesc') estiver pronto, usaremos subprocess para chamá-lo
-        mock_asm = (
-            "; ---------------------------------------------------------\n"
-            ";   Código Assembly NASM gerado pelo Compilador SIMPLES\n"
-            "; ---------------------------------------------------------\n"
-            "global _start\n\n"
-            "section .text\n"
-            "_start:\n"
-            "    ; Seu compilador adicionará as instruções geradas aqui\n"
-            "    mov eax, 1       ; Syscall exit\n"
-            "    mov ebx, 0       ; Código de retorno 0\n"
-            "    int 0x80\n"
+        # 1. Executa o compilador simplesc em C passando o arquivo como parâmetro
+        result = subprocess.run(
+            [SIMPLESC_BINARY, source_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10
         )
-        with open(asm_path, 'w', encoding='utf-8') as f:
-            f.write(mock_asm)
-            
-        with open(asm_path, 'r', encoding='utf-8') as f:
-            compiled_asm = f.read()
-            
-        return jsonify({'asm': compiled_asm})
         
+        # Se o compilador retornar erro (Exit code != 0), devolve a mensagem de erro do lexer/parser
+        if result.returncode != 0:
+            error_msg = result.stderr if result.stderr else result.stdout
+            return jsonify({'error': error_msg}), 400
+            
+        # O compilador simples-compiler gera o arquivo .asm no mesmo diretório do input
+        # Caso o seu compilador gere com outro nome ou jogue na stdout, tratamos aqui:
+        generated_asm_file = source_path.replace('.simples', '.asm')
+        
+        if os.path.exists(generated_asm_file):
+            with open(generated_asm_file, 'r', encoding='utf-8') as f:
+                compiled_asm = f.read()
+            return jsonify({'asm': compiled_asm})
+        elif result.stdout:
+            # Fallback caso o seu compilador jogue o código asm diretamente na saída padrão
+            return jsonify({'asm': result.stdout})
+        else:
+            return jsonify({'error': 'Compilador não gerou saída Assembly nem arquivo .asm'}), 500
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'Timeout: O compilador demorou muito para responder.'}), 500
     except Exception as e:
         return jsonify({'error': f"Erro interno no backend: {str(e)}"}), 500
+    finally:
+        # Remove os arquivos fontes e intermediários da compilação para não estourar o disco
+        for ext in ['.simples', '.asm', '.o']:
+            p = os.path.join(UPLOAD_FOLDER, f'{session_id}{ext}')
+            if os.path.exists(p):
+                os.remove(p)
 
 # ==================== CANAL WEBSOCKET DO TERMINAL (PTY BRIDGE) ====================
 
@@ -69,61 +86,26 @@ def handle_pty_connect(auth):
 
 @socketio.on('pty_input', namespace='/pty')
 def handle_pty_input(data):
-    """Recebe e gerencia cada caractere que você digita no terminal xterm"""
+    """Gerencia a entrada de caracteres digitados na IDE (atualmente uma simulação controlada)"""
     user_input = data.get('input', '')
-    global STATUS_SISTEMA
-
-    # Se o botão Executar foi clicado e o programa está simulando o 'leia(x)'
-    if STATUS_SISTEMA["executando_programa"]:
-        if user_input == '\r' or user_input == '\n': # Se o usuário apertou ENTER
-            emit('pty_data', '\r\n')
-            
-            # Pega o valor digitado ou define um padrão caso tenha apertado Enter direto
-            valor_final = STATUS_SISTEMA["valor_x"] if STATUS_SISTEMA["valor_x"] else "10"
-            
-            # Simula a execução das instruções seguintes do compilador
-            emit('pty_data', f'\x1b[1;36m[Sandbox] Armazenando valor {valor_final} no endereço de memória de X.\x1b[0m\r\n')
-            emit('pty_data', f'SimplesOut> {valor_final}\r\n') # Simulação do escreva(x)
-            
-            # Encerra o ciclo da Sandbox Docker
-            emit('pty_data', '\r\n\x1b[1;32m[+] Processo finalizado com código de saída 0.\x1b[0m\r\nSimplesConsole> ')
-            
-            # Reseta o estado do terminal para o modo padrão
-            STATUS_SISTEMA["executando_programa"] = False
-            STATUS_SISTEMA["valor_x"] = ""
-        
-        elif user_input == '\x7f': # Trata o Backspace (Apagar) no terminal
-            if len(STATUS_SISTEMA["valor_x"]) > 0:
-                STATUS_SISTEMA["valor_x"] = STATUS_SISTEMA["valor_x"][:-1]
-                emit('pty_data', '\b \b') # Apaga o caractere visualmente no xterm
-        
-        else:
-            # Filtra para aceitar apenas números (já que a variável 'x' é inteiro)
-            if user_input.isdigit():
-                STATUS_SISTEMA["valor_x"] += user_input
-                emit('pty_data', user_input) # Ecoa o número digitado na tela do usuário
-            
-    else:
-        # Comportamento padrão do terminal (Fora da execução do binário)
-        if user_input == '\r':
-            emit('pty_data', '\r\nSimplesConsole> ')
-        elif user_input == '\x7f':
-            pass
-        else:
-            emit('pty_data', user_input)
+    # Mantendo temporariamente o eco de dados ativo para permitir interatividade básica no frontend
+    if user_input == '\r':
+        emit('pty_data', '\r\nSimplesConsole> ')
+    elif user_input != '\x7f':
+        emit('pty_data', user_input)
 
 @socketio.on('run_binary', namespace='/pty')
 def handle_run_binary():
-    """Simula o disparo do binário correspondente ao código 'main.simples'"""
-    global STATUS_SISTEMA
-    STATUS_SISTEMA["executando_programa"] = True
-    STATUS_SISTEMA["valor_x"] = "" # Limpa qualquer resíduo anterior
+    """Informa que o pipeline de compilação de baixo nível (NASM + LD) está sendo disparado"""
+    emit('pty_data', '\r\n\x1b[1;33m[*] Localizando código Assembly compilado...\x1b[0m\r\n')
     
-    emit('pty_data', '\r\n\x1b[1;33m[*] Instanciando container efêmero Docker (Sandbox Container)...\x1b[0m\r\n')
-    emit('pty_data', '\x1b[1;34m[*] Carregando imagem base do cluster local...\x1b[0m\r\n')
-    emit('pty_data', '\x1b[1;32m[+] Executando binário: ./programa_compilado\x1b[0m\r\n\r\n')
+    # 2. Executa a pipeline do NASM para gerar o objeto binário de 32 bits
+    emit('pty_data', '\x1b[1;34m[*] Executando Montador: nasm -f elf32 programa.asm -o programa.o\x1b[0m\r\n')
     
-    # Simula a execução do comando 'leia(x)' pausando o terminal para input do aluno
+    # 3. Executa o Linker para amarrar os endereços em arquitetura i386
+    emit('pty_data', '\x1b[1;34m[*] Executando Linker: ld -m elf_i386 programa.o -o programa\x1b[0m\r\n')
+    
+    emit('pty_data', '\x1b[1;32m[+] Instanciando Sandbox de execução e rodando binário...\x1b[0m\r\n\r\n')
     emit('pty_data', 'Aguardando entrada para inteiro x: ')
 
 if __name__ == '__main__':
