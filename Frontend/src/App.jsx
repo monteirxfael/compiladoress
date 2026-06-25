@@ -95,12 +95,13 @@ export default function App() {
 
   const handleCompile = async () => {
     setIsCompiling(true);
-    xtermRef.current.writeln('\r\n\x1b[1;33m[*] Enviando código ao compilador...\x1b[0m');
-    
+
     try {
+      xtermRef.current?.writeln('\r\n\x1b[1;33m[*] Enviando código ao compilador...\x1b[0m');
+
       const response = await fetch(`${BACKEND_URL}/api/compile`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ code: code })
@@ -111,12 +112,12 @@ export default function App() {
       if (response.ok) {
         setAsmCode(data.asm);
         setSessionId(data.session_id);
-        xtermRef.current.writeln('\x1b[1;32m[+] Compilação Concluída com Sucesso!\x1b[0m');
+        xtermRef.current?.writeln('\x1b[1;32m[+] Compilação Concluída com Sucesso!\x1b[0m');
       } else {
-        xtermRef.current.writeln(`\x1b[1;31m[-] Erro:\x1b[0m\r\n${data.error}`);
+        xtermRef.current?.writeln(`\x1b[1;31m[-] Erro:\x1b[0m\r\n${data.error}`);
       }
     } catch (err) {
-      xtermRef.current.writeln('\x1b[1;31m[-] Falha na requisição. Backend offline.\x1b[0m');
+      xtermRef.current?.writeln('\x1b[1;31m[-] Falha na requisição. Backend offline.\x1b[0m');
     } finally {
       setIsCompiling(false);
     }
