@@ -13,11 +13,7 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 UPLOAD_FOLDER = "/tmp/simples_builds"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-_local_simplesc = os.path.join(os.path.dirname(__file__), 'compiler', 'build', 'simplesc')
-SIMPLESC_BINARY = os.environ.get(
-    'SIMPLESC_BINARY',
-    _local_simplesc if os.path.exists(_local_simplesc) else '/app/simplesc'
-)
+SIMPLESC_BINARY = os.environ.get("SIMPLESC_PATH", "backend/compiler/build/simplesc")
 
 # socket_id → {'proc': Popen, 'session_id': str, 'input_buffer': str}
 active_processes = {}
