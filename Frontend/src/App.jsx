@@ -17,10 +17,11 @@ export default function App() {
     user: { email: "rafael@estudante.if" }
   });
   
-  const [code, setCode] = useState('programa\n  inteiro x;\ninicio\n  leia(x);\n  escreva(x);\nfim');
+  const [code, setCode] = useState('programa demo\ninteiro x;\ninicio\n  leia x;\n  escreval x;\nfim');
   const [asmCode, setAsmCode] = useState('; O código Assembly compilado aparecerá aqui...');
   const [isAsmExpanded, setIsAsmExpanded] = useState(true);
   const [isCompiling, setIsCompiling] = useState(false);
+  const [sessionId, setSessionId] = useState(null);
   
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
@@ -109,6 +110,7 @@ export default function App() {
 
       if (response.ok) {
         setAsmCode(data.asm);
+        setSessionId(data.session_id);
         xtermRef.current.writeln('\x1b[1;32m[+] Compilação Concluída com Sucesso!\x1b[0m');
       } else {
         xtermRef.current.writeln(`\x1b[1;31m[-] Erro:\x1b[0m\r\n${data.error}`);
@@ -121,9 +123,13 @@ export default function App() {
   };
 
   const handleRun = () => {
+    if (!sessionId) {
+      xtermRef.current?.writeln('\x1b[1;31m[-] Compile o código antes de executar.\x1b[0m');
+      return;
+    }
     if (socketRef.current?.connected) {
-      xtermRef.current.writeln('\r\n\x1b[1;32m[*] Instanciando sandbox Docker e executando binário...\x1b[0m\r');
-      socketRef.current.emit('run_binary');
+      xtermRef.current.writeln('\r\n\x1b[1;33m[*] Enviando para execução...\x1b[0m');
+      socketRef.current.emit('run_binary', { session_id: sessionId });
     } else {
       xtermRef.current.writeln('\x1b[1;31m[-] Erro: Sem conexão WebSocket ativa.\x1b[0m');
     }
