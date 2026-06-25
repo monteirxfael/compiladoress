@@ -27,9 +27,10 @@ export default function App() {
   const xtermRef = useRef(null);
   const fitAddonRef = useRef(null);
   const socketRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   useEffect(() => {
-    if (!session || !terminalRef.current) return;
+    if (!terminalRef.current) return;
 
     const term = new Terminal({
       cursorBlink: true,
@@ -91,12 +92,14 @@ export default function App() {
       term.dispose();
       if (socketRef.current) socketRef.current.disconnect();
     };
-  }, [session]);
+  }, []);
 
   const handleCompile = async () => {
     setIsCompiling(true);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    abortControllerRef.current = new AbortController();
+    const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), 15000);
 
     try {
       xtermRef.current?.writeln('\r\n\x1b[1;33m[*] Enviando código ao compilador...\x1b[0m');
@@ -105,7 +108,7 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code }),
-        signal: controller.signal
+        signal: abortControllerRef.current.signal
       });
 
       const data = await response.json();
@@ -125,6 +128,7 @@ export default function App() {
       xtermRef.current?.writeln(`\x1b[1;31m${msg}\x1b[0m`);
     } finally {
       clearTimeout(timeoutId);
+      abortControllerRef.current = null;
       setIsCompiling(false);
     }
   };
