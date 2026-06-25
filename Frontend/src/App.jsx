@@ -29,7 +29,7 @@ export default function App() {
   const socketRef = useRef(null);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || !terminalRef.current) return;
 
     const term = new Terminal({
       cursorBlink: true,
