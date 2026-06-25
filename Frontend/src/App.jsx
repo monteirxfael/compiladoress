@@ -95,16 +95,17 @@ export default function App() {
 
   const handleCompile = async () => {
     setIsCompiling(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     try {
       xtermRef.current?.writeln('\r\n\x1b[1;33m[*] Enviando código ao compilador...\x1b[0m');
 
       const response = await fetch(`${BACKEND_URL}/api/compile`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ code: code })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+        signal: controller.signal
       });
 
       const data = await response.json();
@@ -117,8 +118,13 @@ export default function App() {
         xtermRef.current?.writeln(`\x1b[1;31m[-] Erro:\x1b[0m\r\n${data.error}`);
       }
     } catch (err) {
-      xtermRef.current?.writeln('\x1b[1;31m[-] Falha na requisição. Backend offline.\x1b[0m');
+      console.error('[handleCompile]', err);
+      const msg = err.name === 'AbortError'
+        ? '[-] Timeout: o servidor demorou demais para responder.'
+        : '[-] Falha na requisição. Backend offline ou retornou resposta inválida.';
+      xtermRef.current?.writeln(`\x1b[1;31m${msg}\x1b[0m`);
     } finally {
+      clearTimeout(timeoutId);
       setIsCompiling(false);
     }
   };
