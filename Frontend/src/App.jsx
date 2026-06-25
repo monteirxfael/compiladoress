@@ -42,13 +42,18 @@ export default function App() {
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(terminalRef.current);
-    fitAddon.fit();
+
+    // Refs são setados antes do fit() — se fit() falhar, o terminal ainda é acessível
+    xtermRef.current = term;
+    fitAddonRef.current = fitAddon;
+
+    // Adia o fit() para o próximo frame, garantindo que o DOM já foi pintado
+    requestAnimationFrame(() => {
+      try { fitAddonRef.current?.fit(); } catch (_) {}
+    });
 
     term.writeln('\x1b[1;34m[*] SIMPLES Web IDE Terminal pronto.\x1b[0m');
     term.writeln('[*] Conectando ao cluster de execução...\r\n');
-
-    xtermRef.current = term;
-    fitAddonRef.current = fitAddon;
 
     socketRef.current = io(`${BACKEND_URL}/pty`, {
       auth: { token: session.access_token }
@@ -84,7 +89,7 @@ export default function App() {
       }
     });
 
-    const handleResize = () => fitAddon.fit();
+    const handleResize = () => { try { fitAddonRef.current?.fit(); } catch (_) {} };
     window.addEventListener('resize', handleResize);
 
     return () => {
@@ -139,10 +144,10 @@ export default function App() {
       return;
     }
     if (socketRef.current?.connected) {
-      xtermRef.current.writeln('\r\n\x1b[1;33m[*] Enviando para execução...\x1b[0m');
+      xtermRef.current?.writeln('\r\n\x1b[1;33m[*] Enviando para execução...\x1b[0m');
       socketRef.current.emit('run_binary', { session_id: sessionId });
     } else {
-      xtermRef.current.writeln('\x1b[1;31m[-] Erro: Sem conexão WebSocket ativa.\x1b[0m');
+      xtermRef.current?.writeln('\x1b[1;31m[-] Erro: Sem conexão WebSocket ativa.\x1b[0m');
     }
   };
 
