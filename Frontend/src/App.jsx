@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { io } from 'socket.io-client';
@@ -29,8 +29,26 @@ export default function App() {
   const socketRef = useRef(null);
   const abortControllerRef = useRef(null);
 
-  useEffect(() => {
-    if (!terminalRef.current) return;
+  useLayoutEffect(() => {
+    const el = terminalRef.current;
+    if (!el) return;
+
+    // xterm v5 não cancela seus rAFs pendentes em dispose().
+    // Interceptamos window.rAF durante todo o setup para rastrear os IDs.
+    // O cleanup restaura e cancela antes de dispose(), evitando que rAFs
+    // do terminal disposto disparem e causem "dimensions undefined".
+    const pendingRAFIds = new Set();
+    const origRAF = window.requestAnimationFrame.bind(window);
+    const origCancelRAF = window.cancelAnimationFrame.bind(window);
+    window.requestAnimationFrame = (cb) => {
+      const id = origRAF((ts) => { pendingRAFIds.delete(id); cb(ts); });
+      pendingRAFIds.add(id);
+      return id;
+    };
+    window.cancelAnimationFrame = (id) => {
+      pendingRAFIds.delete(id);
+      origCancelRAF(id);
+    };
 
     const term = new Terminal({
       cursorBlink: true,
@@ -41,16 +59,20 @@ export default function App() {
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    term.open(terminalRef.current);
+    term.open(el);
 
-    // Refs são setados antes do fit() — se fit() falhar, o terminal ainda é acessível
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Adia o fit() para o próximo frame, garantindo que o DOM já foi pintado
-    requestAnimationFrame(() => {
-      try { fitAddonRef.current?.fit(); } catch (_) {}
+    const ro = new ResizeObserver(() => {
+      const addon = fitAddonRef.current;
+      if (!addon) return;
+      const { width, height } = el.getBoundingClientRect();
+      if (width > 0 && height > 0) {
+        try { addon.fit(); } catch (_) {}
+      }
     });
+    ro.observe(el);
 
     term.writeln('\x1b[1;34m[*] SIMPLES Web IDE Terminal pronto.\x1b[0m');
     term.writeln('[*] Conectando ao cluster de execução...\r\n');
@@ -63,13 +85,10 @@ export default function App() {
       term.writeln('\x1b[1;32m[+] Canal de comunicação síncrona PTY Ativo!\x1b[0m\r\n');
     });
 
-    // Evento genérico — mantido para compatibilidade
     socketRef.current.on('pty_data', (data) => {
       term.write(data);
     });
 
-    // PADRÃO OBSERVER: listeners para eventos nomeados do backend.
-    // A UI reage a cada etapa do pipeline sem polling.
     socketRef.current.on('compile_started', ({ message }) => {
       term.writeln(`\r\n\x1b[1;33m[*] ${message}\x1b[0m`);
     });
@@ -89,13 +108,21 @@ export default function App() {
       }
     });
 
-    const handleResize = () => { try { fitAddonRef.current?.fit(); } catch (_) {} };
-    window.addEventListener('resize', handleResize);
-
     return () => {
-      window.removeEventListener('resize', handleResize);
+      // Restaura rAF global antes de cancelar — o próximo init usará o original
+      window.requestAnimationFrame = origRAF;
+      window.cancelAnimationFrame = origCancelRAF;
+      // Cancela todos os rAFs pendentes do terminal antes de dispose()
+      pendingRAFIds.forEach(id => origCancelRAF(id));
+      pendingRAFIds.clear();
+      xtermRef.current = null;
+      fitAddonRef.current = null;
+      ro.disconnect();
       term.dispose();
-      if (socketRef.current) socketRef.current.disconnect();
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
     };
   }, []);
 
